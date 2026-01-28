@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import arviz as az
 
 
 def hist_plot(idata, figsize=(9,5), root=True):
@@ -362,3 +363,43 @@ def CI_plot_both_coverage(idata, max_points=5000, figsize=(12, 9), n_bins=20):
     ax.grid(alpha=0.3)
 
     plt.show()
+
+def plot_posteriors_side_by_side(idata1, idata2, var_names=None, figsize=(12, 3), textsize=10):
+    """
+    Plot posterior distributions for the same variables from two InferenceData objects
+    side by side (each variable has a row, two columns: idata1 and idata2).
+    Vector variables starting with 'w' are plotted with all elements on the same subplot.
+    """
+    colors = plt.cm.tab10.colors  # cycle of 10 colors
+    if var_names is None:
+        var_names = list(idata1.posterior.data_vars)
+    
+    n_vars = len(var_names)
+    fig, axes = plt.subplots(n_vars, 2, figsize=(figsize[0], figsize[1]*n_vars), squeeze=False)
+    
+    for i, var in enumerate(var_names):
+        # Determine common x-limits
+        if var[0] == 'w':
+            dims = idata1.posterior[var].dims[2:]  # usually the spline dimension
+            all_vals = np.concatenate([idata1.posterior[var].values.ravel(), idata2.posterior[var].values.ravel()])
+        else:
+            all_vals = np.concatenate([idata1.posterior[var].values.ravel(), idata2.posterior[var].values.ravel()])
+        x_min, x_max = all_vals.min(), all_vals.max()
+        
+        # Handle vector variables like 'w1'
+        if var[0] == 'w':
+            for j in range(idata1.posterior[var].sizes[dims[0]]):
+                color = colors[j % len(colors)]
+                az.plot_posterior(idata1.posterior[var].sel({dims[0]: j}), ax=axes[i, 0], hdi_prob='hide', color=color, textsize=textsize)
+                az.plot_posterior(idata2.posterior[var].sel({dims[0]: j}), ax=axes[i, 1], hdi_prob='hide', color=color, textsize=textsize)
+        else:
+            az.plot_posterior(idata1, var_names=[var], ax=axes[i, 0], color="blue", hdi_prob='hide', round_to=4, textsize=textsize)
+            az.plot_posterior(idata2, var_names=[var], ax=axes[i, 1], color="red", hdi_prob='hide', round_to=4, textsize=textsize)
+        
+        axes[i, 0].set_title(f"{var} - idata1")
+        axes[i, 1].set_title(f"{var} - idata2")
+        axes[i, 0].set_xlim(x_min, x_max)
+        axes[i, 1].set_xlim(x_min, x_max)
+
+    plt.show()
+
