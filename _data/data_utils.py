@@ -103,7 +103,7 @@ def best_res_align(r1, r1catcon, r2, r2catcon,
         # r2 is coarser -> align r2 to r1
         return align_r1_to_r2(r2, r1, data_type=r2catcon)[::-1]
 
-def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_year=2024, end_month=12):
+def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_year=2024, end_month=12, normalise=True, celsius=True):
     valid_admin2 = pd.read_csv(os.path.join(data_folder, 'valid_admin/valid_admin2.csv'), header=None)[0].tolist()
     valid_admin1 = pd.read_csv(os.path.join(data_folder, 'valid_admin/valid_admin1.csv'), header=None)[0].tolist()
     valid_admin2.sort()
@@ -112,6 +112,12 @@ def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_yea
 
     # admin_year (urb, surv, urb_surv)
     admin_year_urbanisation = pd.read_csv(os.path.join(data_folder, f'admin_year_urbanisation/admin{admin}_year_urbanisation.csv'))
+    cols = ["urbanisation_nonweighted", "urbanisation_pop_weighted"]
+    for c in cols:
+        admin_year_urbanisation[c + "_std"] = (
+            admin_year_urbanisation[c] - admin_year_urbanisation[c].mean()
+        ) / (admin_year_urbanisation[c].std()+1e-6)
+
     admin_year_surveillance = pd.read_csv(os.path.join(data_folder, f'admin_year_surveillance/admin{admin}_year_surveillance.csv'))
     admin_year_urban_surveillance = pd.read_csv(os.path.join(data_folder, f'admin_year_urban_surveillance/admin{admin}_year_urban_surveillance.csv'))
     admin_year_density = pd.read_csv(os.path.join(data_folder, f'admin_year_density/admin{admin}_year_density.csv'))
@@ -145,6 +151,9 @@ def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_yea
     # ONI
     ONI = pd.read_csv(os.path.join(data_folder, 'ONI/ONI.csv'))
     ONI = ONI.loc[(ONI['year'] >= 2016) & (ONI['year'] <= 2024), ['year', 'month', 'ONI']].reset_index(drop=True)
+    ONI['ONI' + "_std"] = (
+            ONI['ONI'] - ONI['ONI'].mean()
+        ) / (ONI['ONI'].std()+1e-6)
 
     admin_year_month = admin_year_month_cases.merge(ONI, on=['year', 'month'], how='left')
 
