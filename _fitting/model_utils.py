@@ -79,7 +79,7 @@ def model_settings_to_name(settings):
     
     orth = "o" if settings.get("orthogonal") else "no"
     if len(stats) == 0:
-        return f"[{surv}__{urb}][{stat_str}] []"
+        return f"[{surv}__{urb}][{stat_str}][]"
     else:
         return f"[{surv}__{urb}][{stat_str}][{deg},{k},{kt},{orth}]"
 
@@ -125,10 +125,12 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     os.makedirs(data_path, exist_ok=True)
     idata_path = os.path.join(data_path, 'idata')
     os.makedirs(idata_path, exist_ok=True)
-    report_path = os.path.join(outpath, f'{data_name}/reports/')
+    report_path = os.path.join(data_path, f'reports/')
     os.makedirs(report_path, exist_ok=True)
     output_path = os.path.join(outpath, folder_name)
     os.makedirs(output_path, exist_ok=True)
+    metrics_path = os.path.join(data_path, f'metrics')
+    os.makedirs(metrics_path, exist_ok=True)
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
     with model:
@@ -177,6 +179,16 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
         warnings.simplefilter("ignore")
         eval_waic = az.waic(idata)
         eval_psis_loo_elpd = az.loo(idata)
+
+    # Save pointwise values for later comparison
+    pointwise_file = os.path.join(metrics_path, f"_metrics[{model_name}].npz")
+    np.savez(
+        pointwise_file,
+        waic_pointwise=eval_waic.waic_i.values,
+        loo_pointwise=eval_psis_loo_elpd.loo_i.values,
+        pareto_k=eval_psis_loo_elpd.pareto_k.values
+    )
+
     # dataframes (inner and outer)
     wl_df = pd.DataFrame([elpd_to_row(eval_waic, eval_psis_loo_elpd, model_name, data_name)])
     inner_wl_file = os.path.join(output_path, "_model_elpd_metrics.csv")
@@ -268,15 +280,16 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
         title = f"Model Report: {model_name}"
 
     # --- Read CSVs ---
-    table_files = ["summary.csv", "_model_timings.csv", "_model_elpd_metrics.csv"]
+    table_files = ["_model_timings.csv", "summary.csv", "_model_elpd_metrics.csv"]
     csv_html_parts = []
     for tfile in table_files:
         tpath = os.path.join(model_folder, tfile)
         if os.path.exists(tpath):
             df = pd.read_csv(tpath).round(2)
             # apply formatting only if relevant columns exist
-            fmt_dict = {c: "{:.2f}" for c in df.select_dtypes(include="number").columns if c not in ["ess_bulk", "ess_tail"]}
-            for c in ["ess_bulk", "ess_tail"]:
+            int_cols = ["ess_bulk", "ess_tail", "waic_warning", "n_pareto_k_bad", "n_pareto_k_very_bad"]
+            fmt_dict = {c: "{:.2f}" for c in df.select_dtypes(include="number").columns if c not in int_cols}
+            for c in int_cols:
                 if c in df.columns:
                     df[c] = df[c].astype(int)
                     fmt_dict[c] = "{:d}"
@@ -288,7 +301,7 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
                     .map(lambda x: ess_style(x, n_draws),
                          subset=["ess_bulk", "ess_tail"] if "ess_bulk" in df.columns else [])
                     ).to_html()
-            elif tfile == "model_elpd_metrics.csv":
+            elif tfile == "_model_elpd_metrics.csv":
                 df_html = (df.style.format(fmt_dict)
                     .map(lambda x: "background-color: red;" if isinstance(x, (int, float)) and x >= 1 else "background-color: lightgreen;",
                          subset=["waic_warning"] if "waic_warning" in df.columns else [])
