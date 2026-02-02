@@ -118,19 +118,29 @@ def elpd_to_row(eval_waic, eval_loo, model_name, data_name):
         "pareto_k_mean": float(eval_loo.pareto_k.mean()),
     }
 ###
-def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False):
-    model_name = model_settings_to_name(model_settings)
-    folder_name = f'{data_name}/outputs/{model_name}'
-    data_path = os.path.join(outpath, f'{data_name}/')
+def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False, task=None):
+    
+    if task is None:
+        data_path = os.path.join(outpath, f'{data_name}/')
+    else:
+        data_path = os.path.join(outpath, f'{data_name}[{task}]/')
     os.makedirs(data_path, exist_ok=True)
+    
+    model_name = model_settings_to_name(model_settings)
+
     idata_path = os.path.join(data_path, 'idata')
     os.makedirs(idata_path, exist_ok=True)
+
     report_path = os.path.join(data_path, f'reports/')
     os.makedirs(report_path, exist_ok=True)
-    output_path = os.path.join(outpath, folder_name)
-    os.makedirs(output_path, exist_ok=True)
+
     metrics_path = os.path.join(data_path, f'metrics')
     os.makedirs(metrics_path, exist_ok=True)
+
+    output_path = os.path.join(data_path, f'outputs/{model_name}')
+    os.makedirs(output_path, exist_ok=True)
+
+    
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
     with model:
