@@ -308,24 +308,28 @@ def create_html_report(folder_path, model_name, n_draws, title=None):
             html_parts.append(f"<h2>{tfile}</h2>")
             html_parts.append(df_html)
 
-    # --- Images ---
+    # path from reports/ → model_name/
+    img_prefix = os.path.join("..", model_name)
+
     # 1) trace.png
     trace_file = os.path.join(folder_path[0], "trace.png")
     if os.path.exists(trace_file):
         html_parts.append("<h2>Trace Plot</h2>")
-        html_parts.append(f'<img src="{os.path.basename(trace_file)}" style="max-width:100%;">')
+        html_parts.append(f'<img src="{img_prefix}/trace.png" style="max-width:100%;">')
 
-    # 2) spline plots (all spline_*.png)
-    spline_files = sorted([f for f in os.listdir(folder_path[0]) if f.startswith("spline_") and f.endswith(".png")])
+    # 2) spline plots
+    spline_files = sorted([f for f in os.listdir(folder_path[0]) 
+                        if f.startswith("spline_") and f.endswith(".png")])
     for sf in spline_files:
         html_parts.append(f"<h2>{sf}</h2>")
-        html_parts.append(f'<img src="{sf}" style="max-width:100%;">')
+        html_parts.append(f'<img src="{img_prefix}/{sf}" style="max-width:100%;">')
 
     # 3) khat.png
     khat_file = os.path.join(folder_path[0], "khat.png")
     if os.path.exists(khat_file):
         html_parts.append("<h2>Pareto k Diagnostics</h2>")
-        html_parts.append(f'<img src="{os.path.basename(khat_file)}" style="max-width:100%;">')
+        html_parts.append(f'<img src="{img_prefix}/khat.png" style="max-width:100%;">')
+
 
     
 
