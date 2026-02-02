@@ -2,7 +2,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 import arviz as az
 from patsy import dmatrix
+import re
 
+def abbrev_stat(stat):
+    # remove spaces
+    s = stat.replace(" ", "")
+    
+    # lag extraction: "(k)"
+    lag = re.search(r"\((\d+)\)", s)
+    lag_str = f"({lag.group(1)})" if lag else ""
+    
+    # check if _log is present
+    has_log = "_log" in s
+    
+    # weighting
+    if "pop_weighted" in s:
+        w = "p"
+    elif "unweighted" in s:
+        w = "u"
+    else:
+        w = ""
+    
+    # remove weighting and lag, keep everything else
+    base = re.sub(r"_?(pop_weighted|unweighted).*", "", s)
+    
+    # reattach _log if it was in original
+    if has_log and not base.endswith("_log"):
+        base += "_log"
+    
+    return f"{base}_{w}{lag_str}"
 
 def hist_plot(idata, figsize=(9,5), root=True):
     # comparing observed and predicted histograms
@@ -404,6 +432,9 @@ def plot_posteriors_side_by_side(idata1, idata2, var_names=None, figsize=(12, 3)
 
     plt.show()
 
+units = {'t2':'C˚', 'rh':'%RH', 'tp':'mm'}
+units_log = {'t2':'C˚', 'rh':'%RH', 'tp':'log(m)'}
+
 def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False):
     # Extract posterior samples
     w_samples = idata.posterior[var].stack(draws=("chain", "draw")).values  # (n_basis, n_draws)
@@ -448,13 +479,24 @@ def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(
             # plt.plot(x, (np.max(f_s1_upper)+(np.max(f_s1_upper)-np.min(f_s1_lower))*0.01)*np.ones(len(x)), c='white', alpha=0.8)
 
     x = np.array(data)[index]
-    if invert_log:
-        x = np.exp(x)-1e-6
+    
+    if stat_name[0:2]=='tp':
+        if invert_log:
+            x = (np.exp(x)-1e-6) * 1000
     plt.plot(x, f_s1_mean[index], color='red', label='Mean spline effect')
     plt.fill_between(x, f_s1_lower[index], f_s1_lower5[index], color='red', alpha=0.3, label='95% CI')
     plt.fill_between(x, f_s1_lower5[index], f_s1_upper5[index], color='blue', alpha=0.3, label='50% CI')
     plt.fill_between(x, f_s1_upper5[index], f_s1_upper[index], color='red', alpha=0.3)
-    plt.xlabel(f'Values ({stat_name})')
+
+    abbrev_stat_name = abbrev_stat(stat_name)
+    if invert_log:
+        abbrev_stat_name = abbrev_stat_name.replace("_log", "")
+    if invert_log:
+        xlab = f'{abbrev_stat_name} ({units[stat_name[0:2]]})'
+    else:
+        xlab = f'{abbrev_stat_name} ({units_log[stat_name[0:2]]})'
+
+    plt.xlabel(xlab)
     plt.ylabel('Spline contribution')
     plt.legend()
 

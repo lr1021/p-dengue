@@ -39,6 +39,9 @@ def abbrev_stat(stat):
     lag = re.search(r"\((\d+)\)", s)
     lag_str = f"({lag.group(1)})" if lag else ""
     
+    # check if _log is present
+    has_log = "_log" in s
+    
     # weighting
     if "pop_weighted" in s:
         w = "p"
@@ -47,8 +50,12 @@ def abbrev_stat(stat):
     else:
         w = ""
     
-    # remove weighting + lag from base
+    # remove weighting and lag, keep everything else
     base = re.sub(r"_?(pop_weighted|unweighted).*", "", s)
+    
+    # reattach _log if it was in original
+    if has_log and not base.endswith("_log"):
+        base += "_log"
     
     return f"{base}_{w}{lag_str}"
 
@@ -70,9 +77,9 @@ def model_settings_to_name(settings):
     
     orth = "o" if settings.get("orthogonal") else "no"
     if len(stats) == 0:
-        return f"[{surv} {urb}] [{stat_str}] []"
+        return f"[{surv}__{urb}][{stat_str}] []"
     else:
-        return f"[{surv} {urb}] [{stat_str}] [{deg},{k},{kt},{orth}]"
+        return f"[{surv}__{urb}][{stat_str}][{deg},{k},{kt},{orth}]"
 
 def settings_to_var_names(model_settings):
     v = ['intercept', 'alpha']
@@ -109,11 +116,13 @@ def elpd_to_row(eval_waic, eval_loo, model_name, data_name):
         "pareto_k_mean": float(eval_loo.pareto_k.mean()),
     }
 ###
-def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie"):
+def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False):
     model_name = model_settings_to_name(model_settings)
-    folder_name = f'{data_name}/{model_name}'
+    folder_name = f'{data_name}/outputs/{model_name}'
     data_path = os.path.join(outpath, f'{data_name}/')
     os.makedirs(data_path, exist_ok=True)
+    idata_path = os.path.join(data_path, 'idata')
+    os.makedirs(idata_path, exist_ok=True)
     report_path = os.path.join(outpath, f'{data_name}/reports/')
     os.makedirs(report_path, exist_ok=True)
     output_path = os.path.join(outpath, folder_name)
@@ -148,13 +157,13 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
         "sampler": sampler,
     }])
     # inner
-    inner_metrics_file = os.path.join(output_path, "model_timings.csv")
+    inner_metrics_file = os.path.join(output_path, "_model_timings.csv")
     if os.path.exists(inner_metrics_file):
         metrics_df.to_csv(inner_metrics_file, mode="a", header=False, index=False)
     else:
         metrics_df.to_csv(inner_metrics_file, index=False)
     # outer
-    outer_metrics_file = os.path.join(data_path, "model_timings.csv")
+    outer_metrics_file = os.path.join(data_path, "_model_timings.csv")
     if os.path.exists(outer_metrics_file):
         metrics_df.to_csv(outer_metrics_file, mode="a", header=False, index=False)
     else:
@@ -168,8 +177,8 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
         eval_psis_loo_elpd = az.loo(idata)
     # dataframes (inner and outer)
     wl_df = pd.DataFrame([elpd_to_row(eval_waic, eval_psis_loo_elpd, model_name, data_name)])
-    inner_wl_file = os.path.join(output_path, "model_elpd_metrics.csv")
-    outer_wl_file = os.path.join(data_path, "model_elpd_metrics.csv")
+    inner_wl_file = os.path.join(output_path, "_model_elpd_metrics.csv")
+    outer_wl_file = os.path.join(data_path, "_model_elpd_metrics.csv")
     wl_df.to_csv(inner_wl_file, index=False)
     if os.path.exists(outer_wl_file):
         wl_df.to_csv(outer_wl_file, mode="a", header=False, index=False)
@@ -183,7 +192,7 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     ####
 
     # Save inference data
-    idata_file = os.path.join(output_path, "idata.nc")
+    idata_file = os.path.join(idata_path, f"idata_[{model_name}].nc")
     idata.to_netcdf(idata_file)
 
     # Save summary table
@@ -213,14 +222,14 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
             knots=model_knot_list[stat_name],
             show_basis=True,
             basis_scale=8,
-            invert_log=False
+            invert_log=invert_log
         );
         if isinstance(fig, plt.Figure):
             fig_file = os.path.join(output_path, f"spline_{stat_name}.png")
             fig.savefig(fig_file, bbox_inches="tight")
             plt.close(fig)
 
-    create_html_report([output_path, report_path], model_name=model_name, n_draws=n_draws)
+    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path)
     return
 
 def ess_style(x, n_draws):
@@ -233,118 +242,107 @@ def ess_style(x, n_draws):
             return "background-color: lightgreen;"
     return ""
 
-def create_html_report(folder_path, model_name, n_draws, title=None):
+def create_html_report(model_folder, model_name, n_draws, reports_folder=None, title=None):
     """
-    Generate a simple HTML report by combining CSV tables and images
-    in a folder. Assumes files are named:
-    - model_timings.csv
-    - summary.csv
-    - model_elpd_metrics.csv
-    - trace.png
-    - khat.png
-    - spline_*.png
+    Generate HTML report for a single model.
+
+    Args:
+        model_folder: path to the model_name folder containing csv/images
+        model_name: name of the model
+        n_draws: number of draws for ESS coloring
+        reports_folder: if provided, also generate a report in this folder
+        title: optional HTML title
     """
-    out_file = []
-    for path in folder_path:
-        out_file.append(os.path.join(path, f"_report_[{model_name}].html"))
+
+    # Paths for output HTML files
+    out_files = [os.path.join(model_folder, f"report_[{model_name}].html")]
+    if reports_folder:
+        os.makedirs(reports_folder, exist_ok=True)
+        out_files.append(os.path.join(reports_folder, f"report_[{model_name}].html"))
+
     if title is None:
         title = f"Model Report: {model_name}"
 
-    html_parts = [
-        f"<html><head><title>{title}</title>",
-        "<style>",
-        "body { font-family: Arial, sans-serif; font-size: 12px; line-height: 1.2; margin: 8px; text-align:center; }",
-        "h1, h2, h3, h4 { margin: 4px 0 8px 0; font-weight: normal; }",
-        "table { border-collapse: collapse; font-size: 15px; margin: 0 auto 12px auto; width: 80%; }",
-        "table th, table td { border: 1px solid #aaa; padding: 4px 6px; line-height: 1.2; text-align: center; }",
-        "img { max-width: 80%; margin: 8px auto; display: block; }",
-        "p { margin: 4px 0; }",
-        "</style></head><body>"
-    ]
-    html_parts.append(f"<h1>{title}</h1>")
-
-    # --- Tables ---
-    table_files = ["model_timings.csv", "summary.csv", "model_elpd_metrics.csv"]
+    # --- Read CSVs ---
+    table_files = ["summary.csv", "model_timings.csv", "model_elpd_metrics.csv"]
+    csv_html_parts = []
     for tfile in table_files:
-        tpath = os.path.join(folder_path[0], tfile)
+        tpath = os.path.join(model_folder, tfile)
         if os.path.exists(tpath):
-            df = pd.read_csv(tpath)
-            df = df.round(2)
-
-            # --- Conditional coloring for summary.csv ---
+            df = pd.read_csv(tpath).round(2)
+            # apply formatting only if relevant columns exist
+            fmt_dict = {c: "{:.2f}" for c in df.select_dtypes(include="number").columns if c not in ["ess_bulk", "ess_tail"]}
+            for c in ["ess_bulk", "ess_tail"]:
+                if c in df.columns:
+                    df[c] = df[c].astype(int)
+                    fmt_dict[c] = "{:d}"
+            # Apply styling for summary.csv
             if tfile == "summary.csv":
-                # determine numeric columns
-                numeric_cols = df.select_dtypes(include="number").columns.tolist()
-                # exclude 'ess_b' and 'a' from rounding
-                round_cols = [c for c in numeric_cols if c not in ["ess_bulk", "ess_tail"]]
-
-                fmt_dict = {c: "{:.2f}" for c in round_cols}  # 2 decimal places
-                for c in ["ess_bulk", "ess_tail"]:
-                    if c in df.columns:
-                        df[c] = df[c].astype(int)
-                        fmt_dict[c] = "{:d}"  # integer format
-                # Apply red background to r_hat >= 1.01
                 df_html = (df.style.format(fmt_dict)
-                            .map(lambda x: "background-color: red;" 
-                                 if isinstance(x, (int, float)) and x >= 1.01 else "background-color: lightgreen;",
-                                 subset=["r_hat"])
-                            .map(lambda x: ess_style(x, n_draws),
-                                 subset=["ess_bulk", "ess_tail"])
-                                 ).to_html()
-                #df_html = df.style.format(fmt_dict).map(
-                    #lambda x: "background-color: red;" if isinstance(x, (int, float)) and x >= 1.01 else "",
-                    #subset=["r_hat"]
-                #).to_html()
-            elif tfile =="model_elpd_metrics.csv":
+                    .map(lambda x: "background-color: red;" if isinstance(x, (int, float)) and x >= 1.01 else "background-color: lightgreen;",
+                         subset=["r_hat"] if "r_hat" in df.columns else [])
+                    .map(lambda x: ess_style(x, n_draws),
+                         subset=["ess_bulk", "ess_tail"] if "ess_bulk" in df.columns else [])
+                    ).to_html()
+            elif tfile == "model_elpd_metrics.csv":
                 df_html = (df.style.format(fmt_dict)
-                            .map(lambda x: "background-color: red;" 
-                                 if isinstance(x, (int, float)) and x >= 1 else "background-color: lightgreen;",
-                                 subset=["waic_warning"])
-                            .map(lambda x: "background-color: red;" 
-                                 if isinstance(x, (int, float)) and x > 0 else "background-color: lightgreen;",
-                                 subset=["n_pareto_k_bad", "n_pareto_k_very_bad"])
-                            .map(lambda x: "background-color: yellow;", subset=["waic", "loo"])).to_html()
+                    .map(lambda x: "background-color: red;" if isinstance(x, (int, float)) and x >= 1 else "background-color: lightgreen;",
+                         subset=["waic_warning"] if "waic_warning" in df.columns else [])
+                    .map(lambda x: "background-color: red;" if isinstance(x, (int, float)) and x > 0 else "background-color: lightgreen;",
+                         subset=["n_pareto_k_bad", "n_pareto_k_very_bad"] if "n_pareto_k_bad" in df.columns else [])
+                    .map(lambda x: "background-color: yellow;", subset=["waic", "loo"] if "waic" in df.columns else [])
+                    ).to_html()
             else:
                 df_html = df.to_html(index=False, escape=False, border=0)
 
-            html_parts.append(f"<h2>{tfile}</h2>")
-            html_parts.append(df_html)
+            csv_html_parts.append(f"<h2>{tfile}</h2>\n{df_html}")
 
-    # path from reports/ → model_name/
-    img_prefix = os.path.join("..", model_name)
+    # --- Images ---
+    img_files = []
+    # trace.png
+    trace_path = os.path.join(model_folder, "trace.png")
+    if os.path.exists(trace_path):
+        img_files.append(("Trace Plot", trace_path))
+    # khat.png
+    khat_path = os.path.join(model_folder, "khat.png")
+    if os.path.exists(khat_path):
+        img_files.append(("Pareto k Diagnostics", khat_path))
+    # spline_*.png
+    for sf in sorted([f for f in os.listdir(model_folder) if f.startswith("spline_") and f.endswith(".png")]):
+        sf_path = os.path.join(model_folder, sf)
+        img_files.append((sf, sf_path))
 
-    # 1) trace.png
-    trace_file = os.path.join(folder_path[0], "trace.png")
-    if os.path.exists(trace_file):
-        html_parts.append("<h2>Trace Plot</h2>")
-        html_parts.append(f'<img src="{img_prefix}/trace.png" style="max-width:100%;">')
+    # --- Assemble HTML ---
+    html_base = [
+        f"<html><head><title>{title}</title>",
+        "<style>",
+        "body { font-family: Arial; font-size: 12px; line-height: 1.2; margin: 8px; text-align:center; }",
+        "h1, h2 { margin: 4px 0 8px 0; font-weight: normal; }",
+        "table { border-collapse: collapse; font-size: 15px; margin: 0 auto 12px auto; width: 80%; }",
+        "table th, table td { border: 1px solid #aaa; padding: 4px 6px; text-align: center; }",
+        "img { max-width: 80%; margin: 8px auto; display: block; }",
+        "</style></head><body>",
+        f"<h1>{title}</h1>"
+    ]
+    html_base.extend(csv_html_parts)
+    for caption, path in img_files:
+        html_base.append(f"<h2>{caption}</h2>")
 
-    # 2) spline plots
-    spline_files = sorted([f for f in os.listdir(folder_path[0]) 
-                        if f.startswith("spline_") and f.endswith(".png")])
-    for sf in spline_files:
-        html_parts.append(f"<h2>{sf}</h2>")
-        html_parts.append(f'<img src="{img_prefix}/{sf}" style="max-width:100%;">')
-
-    # 3) khat.png
-    khat_file = os.path.join(folder_path[0], "khat.png")
-    if os.path.exists(khat_file):
-        html_parts.append("<h2>Pareto k Diagnostics</h2>")
-        html_parts.append(f'<img src="{img_prefix}/khat.png" style="max-width:100%;">')
-
-
-    
-
-    html_parts.append("</body></html>")
-
-    # --- write file ---
-    for o in out_file:
-        with open(o, "w") as f:
+    # --- Write HTML files ---
+    for html_file in out_files:
+        html_parts = html_base.copy()
+        for caption, path in img_files:
+            # compute relative path from html_file to image
+            rel_path = os.path.relpath(path, start=os.path.dirname(html_file))
+            html_parts.append(f'<img src="{rel_path}" style="max-width:100%;">')
+        html_parts.append("</body></html>")
+        with open(html_file, "w") as f:
             f.write("\n".join(html_parts))
 
-    print(f"HTML report written to: {out_file}")
+    print(f"HTML reports written to: {', '.join(out_files)}")
 
-###
+
+#############
 
 def build_model(data, stat_names, degree=3, num_knots = 3, knot_type='quantile', orthogonal=True,
                 surveillance_name='urban_surveillance_pop_weighted', urbanisation_name='urbanisation_pop_weighted_std'):

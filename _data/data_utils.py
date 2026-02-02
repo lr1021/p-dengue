@@ -168,7 +168,7 @@ def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_yea
     
     for lag in range(0, max_lag + 1):
         admin_year_month_climate_statistics_lag = admin_year_month_climate_statistics.copy()
-        new_cols = admin_year_month_climate_statistics_lag.columns[0:3].to_list() + [c+f' ({lag})' for c in admin_year_month_climate_statistics_lag.columns[3:]]
+        new_cols = admin_year_month_climate_statistics_lag.columns[0:3].to_list() + [c+f'({lag})' for c in admin_year_month_climate_statistics_lag.columns[3:]]
         admin_year_month_climate_statistics_lag.rename(columns={admin_year_month_climate_statistics_lag.columns[i]: new_cols[i] for i in range(len(new_cols))}, inplace=True)
         admin_year_month_climate_statistics_lag['month'] += lag
         admin_year_month_climate_statistics_lag.loc[admin_year_month_climate_statistics_lag['month'] > 12, 'year'] += 1
