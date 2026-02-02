@@ -12,6 +12,7 @@ import time
 import pandas as pd
 import warnings
 from _fitting.fitting_utils import hist_plot, CI_plot, CI_plot_alt, CI_plot_both, plot_posteriors_side_by_side, plot_spline
+from glob import glob
 
 ###
 import base64
@@ -437,3 +438,99 @@ def data_settings_to_name(s):
     start = f"{s['start_year']}{s['start_month']:02d}"
     end = f"{s['end_year']}{s['end_month']:02d}"
     return f"a{admin}_{start}_{end}"
+
+###########################
+
+def compare_models(outpath, data_name, task, metric="loo"):
+    """
+    Compare multiple models using pointwise ELPD values.
+    Mimics ArviZ's compare() output format.
+    
+    Args:
+        outpath: base path to model fits
+        data_name: name of the data folder (e.g., 'a2_201601_201912')
+        task: subfolder name (e.g., 'variable_selection')
+        metric: 'loo' or 'waic'
+    
+    Returns:
+        DataFrame with model comparison results ranked by ELPD
+    """
+    
+    # Find all npz files
+    metrics_path = os.path.join(outpath, f'{data_name}[{task}]/metrics')
+    npz_files = [os.path.join(metrics_path, f) for f in os.listdir(metrics_path)]
+    
+    if len(npz_files) == 0:
+        raise ValueError(f"No files found in {metrics_path}")
+    
+    print(f"Comparing models using {metric.upper()}")
+    print("="*100)
+    
+    # Load all models
+    models = {}
+    for npz_file in npz_files:
+        model_name = os.path.basename(npz_file)[9:-5]  # Extract from _metrics[...].npz
+        data = np.load(npz_file)
+        models[model_name] = data[f'{metric}_pointwise']
+    
+    # Build comparison dataframe
+    results = []
+    for name, pointwise in models.items():
+        results.append({
+            'model': name,
+            f'{metric}': pointwise.sum(),
+            f'p_{metric}': len(pointwise),  # effective number of parameters
+            f'{metric}_se': np.std(pointwise) * np.sqrt(len(pointwise)),
+        })
+    
+    df = pd.DataFrame(results)
+    
+    # Sort by ELPD (higher is better for elpd_loo, lower is better for looic)
+    # ArviZ reports as negative (looic), but we keep as positive (elpd)
+    df = df.sort_values(f'{metric}', ascending=False).reset_index(drop=True)
+    
+    # Add rank
+    df.insert(0, 'rank', range(len(df)))
+    
+    # Calculate differences from best model (rank 0)
+    best_name = df.iloc[0]['model']
+    best_pointwise = models[best_name]
+    
+    d_metric = []
+    d_se = []
+    weight = []
+    
+    for idx, row in df.iterrows():
+        current_pointwise = models[row['model']]
+        
+        # Difference from best (best - current, so negative means worse)
+        diff_pointwise = best_pointwise - current_pointwise
+        diff = diff_pointwise.sum()
+        diff_se = np.std(diff_pointwise) * np.sqrt(len(diff_pointwise))
+        
+        d_metric.append(diff)
+        d_se.append(diff_se)
+        
+        # Akaike weight
+        weight.append(np.exp(-0.5 * diff))
+    
+    # Normalize weights
+    weight = np.array(weight)
+    weight = weight / weight.sum()
+    
+    df[f'd{metric}'] = d_metric
+    df['dse'] = d_se
+    df['weight'] = weight
+    
+    # Set model as index (like ArviZ does)
+    df = df.set_index('model')
+    
+    # Reorder columns to match ArviZ output
+    column_order = ['rank', f'{metric}', f'p_{metric}', f'd{metric}', 'weight', f'{metric}_se', 'dse']
+    df = df[column_order]
+    df = df.round(2)
+    
+    print(df.to_string())
+    print("="*100)
+    
+    return df
