@@ -14,6 +14,8 @@ import warnings
 from _fitting.fitting_utils import hist_plot, CI_plot, CI_plot_alt, CI_plot_both, plot_posteriors_side_by_side, plot_spline
 
 ###
+import base64
+###
 def abbrev_surveillance(name):
     if name is None:
         return "nosurv"
@@ -256,15 +258,17 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
 
     # Paths for output HTML files
     out_files = [os.path.join(model_folder, f"report_[{model_name}].html")]
+    out_files_png = [os.path.join(model_folder, f"report_[{model_name}].png")]
     if reports_folder:
         os.makedirs(reports_folder, exist_ok=True)
         out_files.append(os.path.join(reports_folder, f"report_[{model_name}].html"))
+        out_files_png.append(os.path.join(reports_folder, f"report_[{model_name}].png"))
 
     if title is None:
         title = f"Model Report: {model_name}"
 
     # --- Read CSVs ---
-    table_files = ["summary.csv", "model_timings.csv", "model_elpd_metrics.csv"]
+    table_files = ["summary.csv", "_model_timings.csv", "_model_elpd_metrics.csv"]
     csv_html_parts = []
     for tfile in table_files:
         tpath = os.path.join(model_folder, tfile)
@@ -325,17 +329,18 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
         f"<h1>{title}</h1>"
     ]
     html_base.extend(csv_html_parts)
+    html_parts = html_base.copy()
+    # Add images as base64
     for caption, path in img_files:
-        html_base.append(f"<h2>{caption}</h2>")
+        html_parts.append(f"<h2>{caption}</h2>")
+        with open(path, "rb") as img_file:
+            img_data = base64.b64encode(img_file.read()).decode('utf-8')
+            html_parts.append(f'<img src="data:image/png;base64,{img_data}" style="max-width:100%;">')
+    
+    html_parts.append("</body></html>")
 
     # --- Write HTML files ---
     for html_file in out_files:
-        html_parts = html_base.copy()
-        for caption, path in img_files:
-            # compute relative path from html_file to image
-            rel_path = os.path.relpath(path, start=os.path.dirname(html_file))
-            html_parts.append(f'<img src="{rel_path}" style="max-width:100%;">')
-        html_parts.append("</body></html>")
         with open(html_file, "w") as f:
             f.write("\n".join(html_parts))
 
