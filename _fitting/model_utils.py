@@ -3,6 +3,8 @@ import numpy as np
 from patsy import dmatrix
 import re
 import os
+import matplotlib
+matplotlib.use("Agg")  # non-interactive backend
 import matplotlib.pyplot as plt
 import arviz as az
 import xarray as xr
