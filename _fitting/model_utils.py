@@ -265,7 +265,7 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
             fig.savefig(fig_file, bbox_inches="tight")
             plt.close(fig)
 
-    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace, clear_output_data=True)
+    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace, clear_images=True)
     if clear_idata:
         # delete nc file to save space
         os.remove(idata_file)
@@ -281,7 +281,7 @@ def ess_style(x, n_draws):
             return "background-color: lightgreen;"
     return ""
 
-def create_html_report(model_folder, model_name, n_draws, reports_folder=None, title=None, replace=False, clear_output_data=False):
+def create_html_report(model_folder, model_name, n_draws, reports_folder=None, title=None, replace=False, clear_images=False):
     """
     Generate HTML report for a single model.
 
@@ -291,7 +291,7 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
         n_draws: number of draws for ESS coloring
         reports_folder: if provided, also generate a report in this folder
         title: optional HTML title
-        clear_output_data: if True, remove image files after generating the report
+        clear_images: if True, remove image files after generating the report
     """
 
     # Paths for output HTML files
