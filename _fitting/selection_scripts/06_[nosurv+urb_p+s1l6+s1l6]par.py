@@ -61,7 +61,8 @@ def worker(task):
             n_tune=1000, 
             invert_log=True,
             task=fitting_task,
-            replace=False
+            replace=False,
+            clear_idata=True
         )
         return (model_name, "success")
     except Exception as e:

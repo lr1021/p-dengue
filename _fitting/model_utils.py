@@ -125,7 +125,7 @@ def elpd_to_row(eval_waic, eval_loo, model_name, data_name):
         "pareto_k_mean": float(eval_loo.pareto_k.mean()),
     }
 ###
-def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False, task=None, replace=False):
+def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False, task=None, replace=False, clear_idata=False):
     
     if task is None:
         data_path = os.path.join(outpath, f'{data_name}/')
@@ -265,7 +265,10 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
             fig.savefig(fig_file, bbox_inches="tight")
             plt.close(fig)
 
-    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace)
+    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace, clear_output_data=True)
+    if clear_idata:
+        # delete nc file to save space
+        os.remove(idata_file)
     return
 
 def ess_style(x, n_draws):
@@ -278,7 +281,7 @@ def ess_style(x, n_draws):
             return "background-color: lightgreen;"
     return ""
 
-def create_html_report(model_folder, model_name, n_draws, reports_folder=None, title=None, replace=False):
+def create_html_report(model_folder, model_name, n_draws, reports_folder=None, title=None, replace=False, clear_output_data=False):
     """
     Generate HTML report for a single model.
 
@@ -288,6 +291,7 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
         n_draws: number of draws for ESS coloring
         reports_folder: if provided, also generate a report in this folder
         title: optional HTML title
+        clear_output_data: if True, remove image files after generating the report
     """
 
     # Paths for output HTML files
@@ -383,6 +387,11 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
             f.write("\n".join(html_parts))
 
     print(f"HTML reports written to: {', '.join(out_files)}")
+
+    if clear_output_data:
+        # remove images to save space
+        for _, path in img_files:
+            os.remove(path)
 
 
 #############
