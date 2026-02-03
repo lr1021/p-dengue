@@ -147,12 +147,12 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     output_path = os.path.join(data_path, f'outputs/{model_name}')
     os.makedirs(output_path, exist_ok=True)
 
-    # if idata already exists, skip
+    # if report already exists, skip
     idata_file = os.path.join(idata_path, f"idata_[{model_name}].nc")
+    report_file = os.path.join(report_path, f"report_[{model_name}].html")
     if not replace:
-        if os.path.exists(idata_file):
+        if os.path.exists(report_file):
             print(f"Skipping {model_name}, data already exists.")
-            create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace)
             return
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
