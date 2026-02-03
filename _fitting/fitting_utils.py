@@ -1,3 +1,8 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 import numpy as np
 import matplotlib.pyplot as plt
 import arviz as az
@@ -435,7 +440,7 @@ def plot_posteriors_side_by_side(idata1, idata2, var_names=None, figsize=(12, 3)
 units = {'t2':'C˚', 'rh':'%RH', 'tp':'mm'}
 units_log = {'t2':'C˚', 'rh':'%RH', 'tp':'log(m)'}
 
-def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False):
+def plot_spline0(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False):
     # Extract posterior samples
     w_samples = idata.posterior[var].stack(draws=("chain", "draw")).values  # (n_basis, n_draws)
     sigma_w_samples = idata.posterior[sigma_var].stack(draws=("chain", "draw")).values  # (n_draws,)
@@ -499,4 +504,75 @@ def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(
     plt.legend()
 
     fig = plt.gcf()
+    return fig
+
+def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False):
+    # work on local copies to avoid mutating caller data
+    B_local = np.array(B, copy=True, order="F")
+    data_arr = np.array(data, copy=True)
+    # Extract posterior samples
+    w_samples = idata.posterior[var].stack(draws=("chain", "draw")).values  # (n_basis, n_draws)
+    sigma_w_samples = idata.posterior[sigma_var].stack(draws=("chain", "draw")).values  # (n_draws,)
+
+    # Compute spline contributions for each draw
+    f_s1_samples = (B_local @ w_samples) * sigma_w_samples  # (n_obs, n_draws)
+
+    # Compute mean and credible intervals
+    f_s1_mean = f_s1_samples.mean(axis=1)
+    f_s1_lower5 = np.percentile(f_s1_samples, 25, axis=1)
+    f_s1_upper5 = np.percentile(f_s1_samples, 75, axis=1)
+    f_s1_lower = np.percentile(f_s1_samples, 2.5, axis=1)
+    f_s1_upper = np.percentile(f_s1_samples, 97.5, axis=1)
+
+    # Sort x
+    index = np.argsort(data_arr)
+
+    # Create figure/axes explicitly
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot knots and optional basis (use local BB variable)
+    if knots is not None:
+        if (invert_log) & (stat_name[0:2] == 'tp'):
+            plot_knots = (np.exp(knots) - 1e-6) * 1000
+        else:
+            plot_knots = knots
+        ax.vlines(plot_knots, ymin=np.min(f_s1_lower), ymax=np.max(f_s1_upper), label='knots')
+        if show_basis:
+            x_plot = np.linspace(np.min(data_arr), np.max(data_arr), 1000)
+            if (invert_log) & (stat_name[0:2] == 'tp'):
+                xx = (np.exp(x_plot) - 1e-6) * 1000
+            else:
+                xx = x_plot
+            BB = dmatrix("bs(x, knots=knots, degree=3, include_intercept=False)-1", {"x": x_plot, "knots": knots},)
+            if orthogonal:
+                BB = np.asarray(BB)
+                BB = (BB - BB.mean(axis=0)) / BB.std(axis=0)
+                BB, _ = np.linalg.qr(BB)
+            for i in range(BB.shape[1]):
+                ax.plot(xx,
+                         (BB[:, i] - np.min(BB)) * basis_scale + np.max(f_s1_upper) + (np.max(f_s1_upper) - np.min(f_s1_lower)) * 0.05,
+                         alpha=0.99, linestyle=':')
+
+    # x values (apply inverse transform if needed)
+    x = data_arr[index]
+    if (invert_log) & (stat_name[0:2] == 'tp'):
+        x = (np.exp(x) - 1e-6) * 1000
+
+    # Main lines and ribbons
+    ax.plot(x, f_s1_mean[index], color='red', label='Mean spline effect')
+    ax.fill_between(x, f_s1_lower[index], f_s1_lower5[index], color='red', alpha=0.3, label='95% CI')
+    ax.fill_between(x, f_s1_lower5[index], f_s1_upper5[index], color='blue', alpha=0.3, label='50% CI')
+    ax.fill_between(x, f_s1_upper5[index], f_s1_upper[index], color='red', alpha=0.3)
+
+    abbrev_stat_name = abbrev_stat(stat_name)
+    if (invert_log) & (stat_name[0:2] == 'tp'):
+        abbrev_stat_name = abbrev_stat_name.replace("_log", "")
+        xlab = f'{abbrev_stat_name} ({units[stat_name[0:2]]})'
+    else:
+        xlab = f'{abbrev_stat_name} ({units_log[stat_name[0:2]]})'
+
+    ax.set_xlabel(xlab)
+    ax.set_ylabel('Spline contribution')
+    ax.legend()
+
     return fig

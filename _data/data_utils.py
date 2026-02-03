@@ -1,8 +1,13 @@
+import os
+import pandas as pd
+pd.options.mode.string_storage = "python"
+pd.options.future.infer_string = False
+
 import geopandas as gpd
 import rioxarray as rxr
 from rasterstats import zonal_stats
-import pandas as pd
-import os
+
+
 import rasterio
 from rasterio.mask import mask
 import numpy as np

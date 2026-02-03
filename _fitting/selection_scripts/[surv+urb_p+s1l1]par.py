@@ -4,11 +4,18 @@ project_root = Path.cwd()  # importing functions from other folders
 sys.path.insert(0, str(project_root))
 
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+import pandas as pd
+pd.options.mode.string_storage = "python"
+pd.options.future.infer_string = False
+
 from multiprocessing import Pool
 from _data.data_utils import read_in
 from _fitting.model_utils import model_fit, data_settings_to_name, model_settings_to_name, compare_models
 import arviz as az
-import pandas as pd
+
 
 az.style.use("arviz-darkgrid")
 
@@ -20,7 +27,7 @@ if '___laptop' in os.listdir('.'):
 elif '___server' in os.listdir('.'):
     # server folder
     folder = "../../../../data/lucaratzinger_data/p_dengue/"
-    outpath = "../../../../data/lucaratzinger_data/p_dengue/model_fits"
+    outpath = "../../../../data/lucaratzinger_data/p_dengue/model_fits/"
 else:
     print('something wrong')
 
@@ -28,7 +35,7 @@ else:
 data_settings = {'admin':2, 'max_lag':1, 'start_year':2016, 'start_month':1, 'end_year':2019, 'end_month':12}
 data_name = data_settings_to_name(data_settings)
 
-fitting_task = 'surv+urb_p+s1'
+fitting_task = 'surv+urb_p+s1l1'  # fitting task name
 ################################################################################
 
 def init_worker():
@@ -53,7 +60,8 @@ def worker(task):
             n_draws=4000, 
             n_tune=1000, 
             invert_log=True,
-            task=fitting_task
+            task=fitting_task,
+            replace=False
         )
         return (model_name, "success")
     except Exception as e:
@@ -71,7 +79,6 @@ statistics = [name for name in statistics if 'pop_weighted' in name]
 statistics = [name for name in statistics if not (name.startswith('tp') and 'log(' not in name)]
 
 print(statistics)
-sys.exit(0)
 ################################################################################
 if __name__ == "__main__":
     # Build model dictionary
@@ -92,14 +99,14 @@ if __name__ == "__main__":
                 model_dict[model_settings_to_name(settings)] = settings
     
     # Create tasks list
-    tasks = list(model_dict.items())
+    tasks = list(model_dict.items())[:]
     
     print(f"Fitting {len(tasks)} models in total...")
     print(f"Data: {data_name}")
     
     # Number of workers (adjust based on your server)
     # Each model uses n_chains, so N_WORKERS * n_chains = total cores used
-    N_WORKERS = 16
+    N_WORKERS = 18
     
     with Pool(N_WORKERS, initializer=init_worker) as p:
         results = p.map(worker, tasks)

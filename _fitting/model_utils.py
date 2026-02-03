@@ -1,15 +1,21 @@
+import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+import pandas as pd
+pd.options.mode.string_storage = "python"
+pd.options.future.infer_string = False
 import pymc as pm
 import numpy as np
 from patsy import dmatrix
 import re
-import os
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend
 import matplotlib.pyplot as plt
 import arviz as az
 import xarray as xr
 import time
-import pandas as pd
+
 import warnings
 from _fitting.fitting_utils import hist_plot, CI_plot, CI_plot_alt, CI_plot_both, plot_posteriors_side_by_side, plot_spline
 from glob import glob
@@ -146,7 +152,7 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     if not replace:
         if os.path.exists(idata_file):
             print(f"Skipping {model_name}, data already exists.")
-            create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=False)
+            create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace)
             return
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
@@ -259,7 +265,7 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
             fig.savefig(fig_file, bbox_inches="tight")
             plt.close(fig)
 
-    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path)
+    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace)
     return
 
 def ess_style(x, n_draws):
