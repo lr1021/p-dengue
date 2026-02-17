@@ -152,7 +152,7 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     report_file = os.path.join(report_path, f"report_[{model_name}].html")
     if not replace:
         if os.path.exists(report_file):
-            print(f"Skipping {model_name}, data already exists.")
+            print(f"Skipping {model_name}, report already exists.")
             return
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
@@ -388,7 +388,7 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
 
     print(f"HTML reports written to: {', '.join(out_files)}")
 
-    if clear_output_data:
+    if clear_images:
         # remove images to save space
         for _, path in img_files:
             os.remove(path)
@@ -485,6 +485,94 @@ def compare_models(outpath, data_name, task, metric="loo"):
     
     if len(npz_files) == 0:
         raise ValueError(f"No files found in {metrics_path}")
+    
+    print(f"Comparing models using {metric.upper()}")
+    print("="*100)
+    
+    # Load all models
+    models = {}
+    for npz_file in npz_files:
+        model_name = os.path.basename(npz_file)[9:-5]  # Extract from _metrics[...].npz
+        data = np.load(npz_file)
+        models[model_name] = data[f'{metric}_pointwise']
+    
+    # Build comparison dataframe
+    results = []
+    for name, pointwise in models.items():
+        results.append({
+            'model': name,
+            f'{metric}': pointwise.sum(),
+            f'p_{metric}': len(pointwise),  # effective number of parameters
+            f'{metric}_se': np.std(pointwise) * np.sqrt(len(pointwise)),
+        })
+    
+    df = pd.DataFrame(results)
+    
+    # Sort by ELPD (higher is better for elpd_loo, lower is better for looic)
+    # ArviZ reports as negative (looic), but we keep as positive (elpd)
+    df = df.sort_values(f'{metric}', ascending=False).reset_index(drop=True)
+    
+    # Add rank
+    df.insert(0, 'rank', range(len(df)))
+    
+    # Calculate differences from best model (rank 0)
+    best_name = df.iloc[0]['model']
+    best_pointwise = models[best_name]
+    
+    d_metric = []
+    d_se = []
+    weight = []
+    
+    for idx, row in df.iterrows():
+        current_pointwise = models[row['model']]
+        
+        # Difference from best (best - current, so negative means worse)
+        diff_pointwise = best_pointwise - current_pointwise
+        diff = diff_pointwise.sum()
+        diff_se = np.std(diff_pointwise) * np.sqrt(len(diff_pointwise))
+        
+        d_metric.append(diff)
+        d_se.append(diff_se)
+        
+        # Akaike weight
+        weight.append(np.exp(-0.5 * diff))
+    
+    # Normalize weights
+    weight = np.array(weight)
+    weight = weight / weight.sum()
+    
+    df[f'd{metric}'] = d_metric
+    df['dse'] = d_se
+    df['weight'] = weight
+    
+    # Set model as index (like ArviZ does)
+    df = df.set_index('model')
+    
+    # Reorder columns to match ArviZ output
+    column_order = ['rank', f'{metric}', f'p_{metric}', f'd{metric}', 'weight', f'{metric}_se', 'dse']
+    df = df[column_order]
+    df = df.round(2)
+    
+    print(df.to_string())
+    print("="*100)
+    
+    return df
+
+def path_compare_models(npz_files, metric="loo"):
+    """
+    Compare multiple models using pointwise ELPD values.
+    Mimics ArviZ's compare() output format.
+    
+    Args:
+        npz_files: list of paths to npz files containing model metrics
+        metric: 'loo' or 'waic'
+    
+    Returns:
+        DataFrame with model comparison results ranked by ELPD
+    """
+    
+    if len(npz_files) == 0:
+        raise ValueError(f"Need at least one file to compare")
     
     print(f"Comparing models using {metric.upper()}")
     print("="*100)
