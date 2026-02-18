@@ -125,7 +125,7 @@ def elpd_to_row(eval_waic, eval_loo, model_name, data_name):
         "pareto_k_mean": float(eval_loo.pareto_k.mean()),
     }
 ###
-def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False, task=None, replace=False, clear_idata=False):
+def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500, n_tune=500, sampler="nutpie", invert_log=False, task=None, check_report=True, check_idata=True, clear_idata=False):
     
     if task is None:
         data_path = os.path.join(outpath, f'{data_name}/')
@@ -150,94 +150,98 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
     # if report already exists, skip
     idata_file = os.path.join(idata_path, f"idata_[{model_name}].nc")
     report_file = os.path.join(report_path, f"report_[{model_name}].html")
-    if not replace:
-        if os.path.exists(report_file):
-            print(f"Skipping {model_name}, report already exists.")
-            return
+    if check_report and os.path.exists(report_file):
+        print(f"Skipping {model_name}, report already exists.")
+        return
 
     model, model_B, model_knot_list = build_model(data.copy(), **model_settings)
     with model:
         s0 = time.time()
-        idata = pm.sample(tune=n_tune,
-                          draws=n_draws,
-                          chains=n_chains,
-                          random_seed=42,
-                          discard_tuned_samples=True,
-                          nuts_sampler=sampler,
-                          store_divergences=True,
-                          progressbar=False)
-        s1 = time.time()
-        pm.compute_log_likelihood(idata, progressbar=False)
-        s2 = time.time()
-        print(f'\nPosterior Sampling {s1 - s0:.2f} seconds')
-        print(f'Log Likelihood Compute {s2 - s1:.2f} seconds \n')
+        if check_idata and os.path.exists(idata_file):
+            print(f"Skipping {model_name} idata compute, already exists.")
+            idata = az.from_netcdf(idata_file)
+        else:
+            idata = pm.sample(tune=n_tune,
+                            draws=n_draws,
+                            chains=n_chains,
+                            random_seed=42,
+                            discard_tuned_samples=True,
+                            nuts_sampler=sampler,
+                            store_divergences=True,
+                            progressbar=False)
+            s1 = time.time()
+            pm.compute_log_likelihood(idata, progressbar=False)
+            s2 = time.time()
+            print(f'\nPosterior Sampling {s1 - s0:.2f} seconds')
+            print(f'Log Likelihood Compute {s2 - s1:.2f} seconds \n')
 
-    #### Time Metrics
-    metrics_df = pd.DataFrame([{
-        "model_name": model_name,
-        "data_name": data_name,
-        "sampling_time_sec": s1 - s0,
-        "log_likelihood_time_sec": s2 - s1,
-        "n_chains": n_chains,
-        "n_draws": n_draws,
-        "n_tune": n_tune,
-        "sampler": sampler,
-    }])
-    # inner
-    inner_metrics_file = os.path.join(output_path, "_model_timings.csv")
-    if os.path.exists(inner_metrics_file):
-        metrics_df.to_csv(inner_metrics_file, mode="a", header=False, index=False)
-    else:
-        metrics_df.to_csv(inner_metrics_file, index=False)
-    # outer
-    outer_metrics_file = os.path.join(data_path, "_model_timings.csv")
-    if os.path.exists(outer_metrics_file):
-        metrics_df.to_csv(outer_metrics_file, mode="a", header=False, index=False)
-    else:
-        metrics_df.to_csv(outer_metrics_file, index=False)
-    ####
+            #### Time Metrics
+            metrics_df = pd.DataFrame([{
+                "model_name": model_name,
+                "data_name": data_name,
+                "sampling_time_sec": s1 - s0,
+                "log_likelihood_time_sec": s2 - s1,
+                "n_chains": n_chains,
+                "n_draws": n_draws,
+                "n_tune": n_tune,
+                "sampler": sampler,
+            }])
+            # inner
+            inner_metrics_file = os.path.join(output_path, "_model_timings.csv")
+            if os.path.exists(inner_metrics_file):
+                metrics_df.to_csv(inner_metrics_file, mode="a", header=False, index=False)
+            else:
+                metrics_df.to_csv(inner_metrics_file, index=False)
+            # outer
+            outer_metrics_file = os.path.join(data_path, "_model_timings.csv")
+            if os.path.exists(outer_metrics_file):
+                metrics_df.to_csv(outer_metrics_file, mode="a", header=False, index=False)
+            else:
+                metrics_df.to_csv(outer_metrics_file, index=False)
+            ####
 
-    #### WAIC and PSIS LOO
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        eval_waic = az.waic(idata)
-        eval_psis_loo_elpd = az.loo(idata)
+            #### WAIC and PSIS LOO
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                eval_waic = az.waic(idata)
+                eval_psis_loo_elpd = az.loo(idata)
 
-    # Save pointwise values for later comparison
-    pointwise_file = os.path.join(metrics_path, f"_metrics[{model_name}].npz")
-    np.savez(
-        pointwise_file,
-        waic_pointwise=eval_waic.waic_i.values,
-        loo_pointwise=eval_psis_loo_elpd.loo_i.values,
-        pareto_k=eval_psis_loo_elpd.pareto_k.values
-    )
+            # Save pointwise values for later comparison
+            pointwise_file = os.path.join(metrics_path, f"_metrics[{model_name}].npz")
+            np.savez(
+                pointwise_file,
+                waic_pointwise=eval_waic.waic_i.values,
+                loo_pointwise=eval_psis_loo_elpd.loo_i.values,
+                pareto_k=eval_psis_loo_elpd.pareto_k.values
+            )
 
-    # dataframes (inner and outer)
-    wl_df = pd.DataFrame([elpd_to_row(eval_waic, eval_psis_loo_elpd, model_name, data_name)])
-    inner_wl_file = os.path.join(output_path, "_model_elpd_metrics.csv")
-    outer_wl_file = os.path.join(data_path, "_model_elpd_metrics.csv")
-    wl_df.to_csv(inner_wl_file, index=False)
-    if os.path.exists(outer_wl_file):
-        wl_df.to_csv(outer_wl_file, mode="a", header=False, index=False)
-    else:
-        wl_df.to_csv(outer_wl_file, index=False)
+            # dataframes (inner and outer)
+            wl_df = pd.DataFrame([elpd_to_row(eval_waic, eval_psis_loo_elpd, model_name, data_name)])
+            inner_wl_file = os.path.join(output_path, "_model_elpd_metrics.csv")
+            outer_wl_file = os.path.join(data_path, "_model_elpd_metrics.csv")
+            wl_df.to_csv(inner_wl_file, index=False)
+            if os.path.exists(outer_wl_file):
+                wl_df.to_csv(outer_wl_file, mode="a", header=False, index=False)
+            else:
+                wl_df.to_csv(outer_wl_file, index=False)
 
-    khat_fig = az.plot_khat(eval_psis_loo_elpd).get_figure()
-    fig_file = os.path.join(output_path, f"khat.png")
-    khat_fig.savefig(fig_file, bbox_inches="tight")
-    plt.close(khat_fig)
-    ####
+            khat_fig = az.plot_khat(eval_psis_loo_elpd).get_figure()
+            fig_file = os.path.join(output_path, f"khat.png")
+            khat_fig.savefig(fig_file, bbox_inches="tight")
+            plt.close(khat_fig)
+            ####
 
-    # Save inference data
-    idata.to_netcdf(idata_file)
+            # Save inference data
+            idata.to_netcdf(idata_file)
 
-    # Save summary table
-    var_names = settings_to_var_names(model_settings)
-    summary_df = az.summary(idata, var_names=var_names)
-    summary_file = os.path.join(output_path, "summary.csv")
-    summary_df.to_csv(summary_file)
+            # Save summary table
+            var_names = settings_to_var_names(model_settings)
+            summary_df = az.summary(idata, var_names=var_names)
+            summary_file = os.path.join(output_path, "summary.csv")
+            summary_df.to_csv(summary_file)
 
     # Plot and save traces
+    var_names = settings_to_var_names(model_settings)
     trace_axes = az.plot_trace(idata, var_names=var_names)
     # trace_axes is an ndarray of matplotlib Axes
     figs = {ax.get_figure() for ax in trace_axes.ravel()}  # unique figures
@@ -262,10 +266,10 @@ def model_fit(data, data_name, model_settings, outpath, n_chains=4, n_draws=500,
         );
         if isinstance(fig, plt.Figure):
             fig_file = os.path.join(output_path, f"spline_{stat_name}.png")
-            fig.savefig(fig_file, bbox_inches="tight")
+            fig.savefig(fig_file, bbox_inches="tight", dpi=500)
             plt.close(fig)
 
-    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=replace, clear_images=True)
+    create_html_report(output_path, model_name=model_name, n_draws=n_draws, reports_folder=report_path, replace=(not check_report), clear_images=True)
     if clear_idata:
         # delete nc file to save space
         os.remove(idata_file)
@@ -397,7 +401,7 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
 #############
 
 def build_model(data, stat_names, degree=3, num_knots = 3, knot_type='quantile', orthogonal=True,
-                surveillance_name='urban_surveillance_pop_weighted', urbanisation_name='urbanisation_pop_weighted_std'):
+                surveillance_name='urban_surveillance_pop_weighted', urbanisation_name='urbanisation_pop_weighted_std', B_intercept=False):
     model = pm.Model()
     with model:
         # Priors
@@ -421,7 +425,7 @@ def build_model(data, stat_names, degree=3, num_knots = 3, knot_type='quantile',
             else:
                 print('knot_list must be quantile or equispaced')
 
-            B[stat_name] = dmatrix(f"bs(s, knots=knots, degree=degree, include_intercept=False)-1",
+            B[stat_name] = dmatrix(f"bs(s, knots=knots, degree=degree, include_intercept={B_intercept})-1",
                         {"s": data[stat_name], "knots": knot_list[stat_name], "degree":degree})
             if orthogonal:
                 B[stat_name] = np.asarray(B[stat_name])

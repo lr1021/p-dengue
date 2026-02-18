@@ -506,7 +506,7 @@ def plot_spline0(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=
     fig = plt.gcf()
     return fig
 
-def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False):
+def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False, centred_w=True):
     # work on local copies to avoid mutating caller data
     B_local = np.array(B, copy=True, order="F")
     data_arr = np.array(data, copy=True)
@@ -515,7 +515,10 @@ def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(
     sigma_w_samples = idata.posterior[sigma_var].stack(draws=("chain", "draw")).values  # (n_draws,)
 
     # Compute spline contributions for each draw
-    f_s1_samples = (B_local @ w_samples) * sigma_w_samples  # (n_obs, n_draws)
+    if centred_w:
+        f_s1_samples = (B_local @ w_samples)  # (n_obs, n_draws)
+    else:
+        f_s1_samples = (B_local @ w_samples) * sigma_w_samples  # (n_obs, n_draws)
 
     # Compute mean and credible intervals
     f_s1_mean = f_s1_samples.mean(axis=1)
@@ -573,6 +576,7 @@ def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(
 
     ax.set_xlabel(xlab)
     ax.set_ylabel('Spline contribution')
+    ax.set_ylim(-0.5, 3.5)
     ax.legend()
 
     return fig
