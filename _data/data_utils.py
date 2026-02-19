@@ -108,7 +108,7 @@ def best_res_align(r1, r1catcon, r2, r2catcon,
         # r2 is coarser -> align r2 to r1
         return align_r1_to_r2(r2, r1, data_type=r2catcon)[::-1]
 
-def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_year=2024, end_month=12, standardise=True, celsius=True, tp_log=True, dropna=True):
+def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_year=2024, end_month=12, standardise=True, celsius=True, tp_log=True, dropna=True, select_regions=None):
     valid_admin2 = pd.read_csv(os.path.join(data_folder, 'valid_admin/valid_admin2.csv'), header=None)[0].tolist()
     valid_admin1 = pd.read_csv(os.path.join(data_folder, 'valid_admin/valid_admin1.csv'), header=None)[0].tolist()
     valid_admin2.sort()
@@ -191,6 +191,9 @@ def read_in(data_folder, admin, max_lag, start_year=2015, start_month=1, end_yea
     mask2 = full['date'] <= pd.Timestamp(year=end_year, month=end_month, day=1)
     full = full[mask1*mask2]
     full = full.drop(columns=['date'], inplace=False)
+
+    if select_regions is not None:
+        full = full[full[f'admin{admin}'].isin(select_regions)].reset_index(drop=True)
 
     if dropna:
         full = full.dropna()

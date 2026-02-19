@@ -506,7 +506,7 @@ def plot_spline0(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=
     fig = plt.gcf()
     return fig
 
-def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False, centred_w=True):
+def plot_spline1(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(10,5), show_basis=False, basis_scale=4, orthogonal=True, invert_log=False, centred_w=True):
     # work on local copies to avoid mutating caller data
     B_local = np.array(B, copy=True, order="F")
     data_arr = np.array(data, copy=True)
@@ -576,7 +576,73 @@ def plot_spline(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=(
 
     ax.set_xlabel(xlab)
     ax.set_ylabel('Spline contribution')
-    ax.set_ylim(-0.5, 3.5)
+    # ax.set_ylim(-0.5, 3.5)
+    ax.legend()
+
+    return fig
+
+def plot_spline(idata, stat_name, var, sigma_var, B, data, knots, figsize=(10,5), show_basis=False, basis_scale=1, invert_log=False, centred_w=True):
+    # work on local copies to avoid mutating caller data
+    knots_local = np.array(knots, copy=True)
+    B_local = np.array(B, copy=True, order="F")
+    data_local = np.array(data, copy=True)
+
+    index = np.argsort(data_local)
+    data_plot = data_local[index]
+    B_plot = B_local[index, :]
+
+    # Extract posterior samples
+    w_samples = idata.posterior[var].stack(draws=("chain", "draw")).values  # (n_basis, n_draws)
+    sigma_w_samples = idata.posterior[sigma_var].stack(draws=("chain", "draw")).values  # (n_draws,)
+
+    # Compute spline contributions for each draw
+    if centred_w:
+        f_samples = (B_plot @ w_samples)  # (n_plot, n_draws)
+    else:
+        f_samples = (B_plot @ w_samples) * sigma_w_samples  # (n_plot, n_draws)
+
+    # Compute mean and credible intervals
+    f_mean = f_samples.mean(axis=1)
+    f_25 = np.percentile(f_samples, 25, axis=1)
+    f_75 = np.percentile(f_samples, 75, axis=1)
+    f_025 = np.percentile(f_samples, 2.5, axis=1)
+    f_975 = np.percentile(f_samples, 97.5, axis=1)
+
+    # Create figure/axes explicitly
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # inverse log trasformation
+    if (invert_log) & (stat_name[0:2] == 'tp'):
+        plot_knots = (np.exp(knots_local) - 1e-6) * 1000
+        data_plot = (np.exp(data_plot) - 1e-6) * 1000
+    else:
+        plot_knots = knots_local
+
+    ax.vlines(plot_knots, ymin=np.min(f_025), ymax=np.max(f_975), label='knots')
+    if show_basis:
+        for i in range(B_plot.shape[1]):
+            ax.plot(data_plot,
+                    np.max(f_975) +
+                    (np.max(f_975) - np.min(f_025)) * basis_scale * (
+                        (B_plot[:, i] - np.min(B_plot[:, i]))/(np.max(B_plot[:, i]) - np.min(B_plot[:, i])) + 0.05),
+                        alpha=0.99, linestyle=':')
+
+    # Main lines and ribbons
+    ax.plot(data_plot, f_mean, color='red', label='Mean spline effect')
+    ax.fill_between(data_plot, f_025, f_25, color='red', alpha=0.3, label='95% CI')
+    ax.fill_between(data_plot, f_25, f_75, color='blue', alpha=0.3, label='50% CI')
+    ax.fill_between(data_plot, f_75, f_975, color='red', alpha=0.3)
+
+    abbrev_stat_name = abbrev_stat(stat_name)
+    if (invert_log) & (stat_name[0:2] == 'tp'):
+        abbrev_stat_name = abbrev_stat_name.replace("_log", "")
+        xlab = f'{abbrev_stat_name} ({units[stat_name[0:2]]})'
+    else:
+        xlab = f'{abbrev_stat_name} ({units_log[stat_name[0:2]]})'
+
+    ax.set_xlabel(xlab)
+    ax.set_ylabel('Spline contribution')
+    # ax.set_ylim(-0.5, 3.5)
     ax.legend()
 
     return fig
