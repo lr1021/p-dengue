@@ -581,7 +581,7 @@ def plot_spline1(idata, stat_name, var, sigma_var, B, data, knots=None, figsize=
 
     return fig
 
-def plot_spline(idata, stat_name, var, sigma_var, B, data, knots, figsize=(10,5), show_basis=False, basis_scale=1, invert_log=False, centred_w=True):
+def plot_spline_Bknots(idata, stat_name, var, sigma_var, B, data, knots, figsize=(10,5), show_basis=False, basis_scale=1, invert_log=False, centred_w=True):
     # work on local copies to avoid mutating caller data
     knots_local = np.array(knots, copy=True)
     B_local = np.array(B, copy=True, order="F")
