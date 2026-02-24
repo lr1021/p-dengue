@@ -212,4 +212,8 @@ def read_in(data_folder, admin, max_lag,
             mu = np.mean(x)
             sd = np.std(x)
             full[c + "_std"] = (x - mu) / sd
+    full = full[full[f'admin{admin}'].isin(va[admin])].reset_index(drop=True)
+    full = full.sort_values([f'admin{admin}', 'year', 'month']).reset_index(drop=True)
+    full['date'] = pd.to_datetime(full['year'].astype(str) + '-' + full['month'].astype(str) + '-01')
+    full['rate'] = full['cases'] / full['population']
     return full
