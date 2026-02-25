@@ -399,6 +399,59 @@ def create_html_report(model_folder, model_name, n_draws, reports_folder=None, t
 
 
 #############
+def build_model_choose_Bdropcentred(data, stat_names,
+                                    disp_sigma, intercept_sigma, beta_u_sigma, sigma_w_sigma,
+                                    degree=3, num_knots = 3,
+                                    knot_type='quantile',
+                                    surveillance_name=None, 
+                                    urbanisation_name='urbanisation_pop_weighted_std'):
+    model = pm.Model()
+    with model:
+        # Priors
+        alpha = pm.Exponential("alpha", disp_sigma)
+        intercept = pm.Normal("intercept", mu=0, sigma=intercept_sigma)
+        if urbanisation_name is not None:
+            beta_u = pm.Normal("beta_u", mu=0, sigma=beta_u_sigma)
+
+        # splines
+        knot_list = {}
+        B = {}
+        sigma_w = {}
+        w = {}
+        f = {}
+        for stat_name in stat_names:
+            d = data[stat_name].values
+            if knot_type=='equispaced':
+                knot_list[stat_name] = np.linspace(np.min(d), np.max(d), num_knots+2)[1:-1]
+            elif knot_type=='quantile':
+                knot_list[stat_name] = np.percentile(d, np.linspace(0, 100, num_knots + 2))[1:-1]
+            else:
+                print('knot_list must be quantile or equispaced')
+
+            B_drop = dmatrix(f"bs(s, knots=knots, degree=degree, include_intercept=False)-1",
+                            {"s": d, "knots": knot_list[stat_name], "degree":degree})
+            B_drop_centred = B_drop - B_drop.mean(axis=0)  # centre the spline basis functions
+            B[stat_name] = B_drop_centred
+
+            # Spline coefficients
+            sigma_w[stat_name] = pm.HalfNormal(f"sigma_w({stat_name})", sigma=sigma_w_sigma)
+            w[stat_name] = pm.Normal(f"w({stat_name})", mu=0, sigma=sigma_w[stat_name], size=B[stat_name].shape[1], dims="splines")
+        
+            f[stat_name] = pm.math.dot(B[stat_name], w[stat_name])
+
+        # Link
+        log_mu = intercept + pm.math.log(data['population'])
+        if surveillance_name is not None:
+            log_mu += pm.math.log(pm.math.max(data[surveillance_name], pm.math.log(1e-3)))
+        if urbanisation_name is not None:
+            log_mu += beta_u*data[urbanisation_name]
+        for stat_name in stat_names:
+            log_mu += f[stat_name]
+
+        # Likelihood
+        y_obs = pm.NegativeBinomial('y_obs', mu=pm.math.exp(log_mu), alpha=alpha, observed=data['cases'])
+
+    return model, B, knot_list
 
 def build_model(data, stat_names, degree=3, num_knots = 3, knot_type='quantile', orthogonal=True,
                 surveillance_name='urban_surveillance_pop_weighted', urbanisation_name='urbanisation_pop_weighted_std', B_intercept=False):
