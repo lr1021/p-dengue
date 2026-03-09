@@ -51,7 +51,7 @@ def worker(task):
             worker_outpath,
             fitting_task,
             n_chains=4, 
-            n_draws=2000, 
+            n_draws=4000, 
             n_tune=1000,
             sampler='nutpie',
             invert_log=True,
@@ -74,8 +74,8 @@ if __name__ == "__main__":
     # Build model dictionary
     model_dict = {}
     
-    for sigma_w_sigma_val in [0.5, 1.0, 2.5, 3.0, 5.0, 7.5, 10.0]:
-        for sigma_w_nu_val in [1.0, 3.0, 5.0, 7.0]:
+    for sigma_w_sigma_val in [8.0, 9.0, 10.0, 11.5, 13.0, 16.0, 20.0, 25.0]:
+        for sigma_w_nu_val in [1.0, 3.0, 5.0]:
             for stat_name in ['t2m_mean_pop_weighted(0)']: ##['rh_mean_pop_weighted(0)', 't2m_mean_pop_weighted(0)',
                             #'tp_24hmean_pop_weighted_log(1)', 'tp_24hmean_pop_weighted_log(5)']:
                 settings = {'stat_names': [stat_name],
@@ -104,7 +104,7 @@ if __name__ == "__main__":
     
     # Number of workers (adjust based on your server)
     # Each model uses n_chains, so N_WORKERS * n_chains = total cores used
-    N_WORKERS = 36
+    N_WORKERS = 24
     
     with Pool(N_WORKERS, initializer=init_worker) as p:
         results = p.map(worker, tasks)
